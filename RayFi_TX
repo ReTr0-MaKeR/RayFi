@@ -1,0 +1,51 @@
+#define LASER_PIN 22
+const int bitDuration = 100; // milliseconds per bit
+
+void setup() {
+  pinMode(LASER_PIN, OUTPUT);
+  Serial.begin(115200);
+  Serial.println("Alignemnt Pulse Sending....");
+  digitalWrite(LASER_PIN, HIGH);
+  delay(5000);
+  digitalWrite(LASER_PIN, LOW);
+  Serial.println("RayFi Transmitter Ready. Type a message:");
+}
+
+void loop() {
+  if (Serial.available()) {
+    String message = Serial.readStringUntil('\n');
+    sendMessage(message);
+  }
+}
+
+void sendMessage(String msg) {
+  String binaryMsg = toBinary(msg);
+  String preamble = "10101010"; // sync bits
+  binaryMsg = preamble + binaryMsg;
+
+  Serial.print("Sending binary: ");
+  Serial.println(binaryMsg);
+
+  for (int i = 0; i < binaryMsg.length(); i++) {
+    if (binaryMsg[i] == '1') {
+      digitalWrite(LASER_PIN, HIGH);
+    } else {
+      digitalWrite(LASER_PIN, LOW);
+    }
+    delay(bitDuration);
+  }
+
+  digitalWrite(LASER_PIN, LOW);
+  Serial.println("Message sent.");
+}
+
+String toBinary(String input) {
+  String binary = "";
+  for (int i = 0; i < input.length(); i++) {
+    char c = input.charAt(i);
+    for (int j = 7; j >= 0; j--) {
+      binary += ((c >> j) & 1) ? '1' : '0';
+    }
+  }
+  return binary;
+}
