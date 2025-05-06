@@ -1,0 +1,126 @@
+#define LASER_PIN 22
+#define LDR_PIN 25
+
+const int bitDuration = 100; // ms
+const int maxMessageLength = 64;
+
+bool aligned = false;
+String currentByte = "";
+String receivedMessage = "";
+bool receiving = false;
+unsigned long lastSampleTime = 0;
+int charCount = 0;
+
+void setup() {
+  pinMode(LASER_PIN, OUTPUT);
+  digitalWrite(LASER_PIN, LOW);
+  pinMode(LDR_PIN, INPUT);
+  Serial.begin(115200);
+  alignLasers(); // Alignment before entering chat mode
+}
+
+void loop() {
+  if (!aligned) return; // Do nothing if alignment failed
+  receiveBitIfAvailable();
+  checkForUserInput();
+}
+
+// Alignment phase using 2-second laser test
+void alignLasers() {
+  Serial.println("Aligning lasers...");
+
+  unsigned long startTime = millis();
+  bool ldrSawLaser = false;
+
+  // Turn on laser for 2 seconds and keep checking LDR
+  digitalWrite(LASER_PIN, HIGH);
+  while (millis() - startTime < 2000) {
+    int ldrValue = digitalRead(LDR_PIN);
+    if (ldrValue == LOW) { // Inverted: LOW = laser detected
+      ldrSawLaser = true;
+    }
+  }
+  digitalWrite(LASER_PIN, LOW);
+
+  if (ldrSawLaser) {
+    aligned = true;
+    Serial.println("✅ Alignment successful. You may now chat.");
+  } else {
+    Serial.println("❌ Alignment failed. Please adjust lasers and reset.");
+  }
+}
+
+// Receive incoming bits if aligned
+void receiveBitIfAvailable() {
+  if (millis() - lastSampleTime < bitDuration) return;
+  lastSampleTime = millis();
+
+  int raw = digitalRead(LDR_PIN);
+  char bit = (raw == LOW) ? '1' : '0'; // Inverted logic
+
+  static String preambleBuffer = "";
+  if (!receiving) {
+    preambleBuffer += bit;
+    if (preambleBuffer.length() > 8)
+      preambleBuffer = preambleBuffer.substring(1);
+
+    if (preambleBuffer == "10101010") {
+      receiving = true;
+      currentByte = "";
+      receivedMessage = "";
+      charCount = 0;
+    }
+    return;
+  }
+
+  currentByte += bit;
+
+  if (currentByte.length() == 8) {
+    char c = (char) strtol(currentByte.c_str(), NULL, 2);
+    if (c == '\0') {
+      Serial.print("Friend: ");
+      Serial.println(receivedMessage);
+      receiving = false;
+      return;
+    }
+    receivedMessage += c;
+    currentByte = "";
+    charCount++;
+
+    if (charCount >= maxMessageLength) {
+      Serial.print("Friend: ");
+      Serial.println(receivedMessage);
+      receiving = false;
+    }
+  }
+}
+
+// Check for user input and send as laser-encoded message
+void checkForUserInput() {
+  if (Serial.available()) {
+    String message = Serial.readStringUntil('\n');
+    sendMessage(message);
+    Serial.print("You: ");
+    Serial.println(message);
+  }
+}
+
+void sendMessage(String msg) {
+  String binaryMsg = "10101010" + toBinary(msg) + "00000000";
+  for (int i = 0; i < binaryMsg.length(); i++) {
+    digitalWrite(LASER_PIN, (binaryMsg[i] == '1') ? HIGH : LOW);
+    delay(bitDuration);
+  }
+  digitalWrite(LASER_PIN, LOW);
+}
+
+String toBinary(String input) {
+  String binary = "";
+  for (int i = 0; i < input.length(); i++) {
+    char c = input.charAt(i);
+    for (int j = 7; j >= 0; j--) {
+      binary += ((c >> j) & 1) ? '1' : '0';
+    }
+  }
+  return binary;
+}
