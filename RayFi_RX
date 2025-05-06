@@ -1,0 +1,69 @@
+#define LDR_PIN 25
+const int bitDuration = 100; // ms per bit
+const int maxMessageLength = 64; // limit to prevent buffer overflow
+
+String currentByte = "";
+String decodedMessage = "";
+bool receiving = false;
+unsigned long lastSampleTime = 0;
+int charCount = 0;
+
+void setup() {
+  pinMode(LDR_PIN, INPUT);
+  Serial.begin(115200);
+  Serial.println("RayFi Receiver (Text Decode Mode)");
+}
+
+void loop() {
+  if (millis() - lastSampleTime >= bitDuration) {
+    lastSampleTime = millis();
+
+    int raw = digitalRead(LDR_PIN);
+    char bit = (raw == LOW) ? '1' : '0'; // Inverted logic
+
+    // If not receiving yet, look for preamble
+    static String preambleBuffer = "";
+    if (!receiving) {
+      preambleBuffer += bit;
+      if (preambleBuffer.length() > 8)
+        preambleBuffer = preambleBuffer.substring(1); // keep last 8 bits
+
+      if (preambleBuffer == "10101010") {
+        receiving = true;
+        decodedMessage = "";
+        currentByte = "";
+        charCount = 0;
+        Serial.println("Preamble detected! Decoding message...");
+      }
+      return;
+    }
+
+    // Receiving mode: collect bits
+    currentByte += bit;
+
+    if (currentByte.length() == 8) {
+      char c = (char) strtol(currentByte.c_str(), NULL, 2);
+      
+      // Optional end-of-message marker: NULL (00000000)
+      if (c == '\0') {
+        Serial.println("End of message detected.");
+        Serial.print("Received Message: ");
+        Serial.println(decodedMessage);
+        receiving = false;
+        return;
+      }
+
+      decodedMessage += c;
+      Serial.print(c);
+      currentByte = "";
+
+      charCount++;
+      if (charCount >= maxMessageLength) {
+        Serial.println("\nMax message length reached.");
+        Serial.print("Received Message: ");
+        Serial.println(decodedMessage);
+        receiving = false;
+      }
+    }
+  }
+}
